@@ -2,7 +2,8 @@ import { MoreHorizIcon } from '@bigcommerce/big-design-icons';
 import React, { createRef, useMemo } from 'react';
 
 import { Button } from '../Button';
-import { Dropdown, DropdownProps } from '../Dropdown';
+import { Dropdown, DropdownItemGroup, DropdownProps } from '../Dropdown';
+import { isDropdownItemGroupArray } from '../Dropdown/Dropdown';
 import { Flex } from '../Flex';
 
 import { StyledFlexItem, StyledPillTab } from './styled';
@@ -10,9 +11,17 @@ import { toDropdownItem } from './toDropDownItem';
 import { toDropdownItemGroups } from './toDropdownItemGroups';
 import { useAvailableWidth } from './useAvailableWidth';
 
+const toGroups = (items: DropdownProps['items']): DropdownItemGroup[] =>
+  isDropdownItemGroupArray(items) ? items : [{ items }];
+
 export interface PillTabItem {
   id: string;
   title: string;
+}
+
+export interface PillTabGroup {
+  label?: string;
+  items: PillTabItem[];
 }
 
 interface Pill {
@@ -23,8 +32,16 @@ interface Pill {
   isActive: boolean;
 }
 
+type ItemsOrGroups = PillTabItem[] | PillTabGroup[];
+
+const isPillTabGroups = (items: ItemsOrGroups): items is PillTabGroup[] =>
+  items.length > 0 && 'items' in items[0];
+
+const toPillTabGroups = (items: ItemsOrGroups): PillTabGroup[] =>
+  isPillTabGroups(items) ? items : [{ items }];
+
 export interface PillTabsProps {
-  items: PillTabItem[];
+  items: ItemsOrGroups;
   activePills: string[];
   onPillClick: (itemId: string) => void;
   dropdownItems?: DropdownProps['items'];
@@ -32,41 +49,59 @@ export interface PillTabsProps {
 
 export const PillTabs: React.FC<PillTabsProps> = ({
   activePills,
-  items,
+  items: itemsOrGroups,
   onPillClick,
   dropdownItems: customDropdownItems = [],
 }) => {
   const refs = { parent: createRef<HTMLDivElement>(), dropdown: createRef<HTMLDivElement>() };
   const availableWidth = useAvailableWidth(refs);
 
-  const pillsWithoutVisibility = useMemo(
+  const pillTabGroupsWithoutVisibility = useMemo(
     () =>
-      items.map(({ title, id }) => ({
-        title,
-        onClick: () => onPillClick(id),
-        isActive: activePills.includes(id),
-        ref: createRef<HTMLDivElement>(),
+      toPillTabGroups(itemsOrGroups).map(({ items, ...rest }) => ({
+        ...rest,
+        items: items.map(({ title, id }) => ({
+          title,
+          onClick: () => onPillClick(id),
+          isActive: activePills.includes(id),
+          ref: createRef<HTMLDivElement>(),
+        })),
       })),
-    [items, activePills, onPillClick],
+    [itemsOrGroups, activePills, onPillClick],
   );
 
-  const { pills } = pillsWithoutVisibility.reduce<{ pills: Pill[]; widthBudget: number }>(
-    (acc, item) => {
-      const pillWidth = item.ref.current?.offsetWidth || 0;
-      const widthBudget = acc.widthBudget - pillWidth;
-      const pill = { ...item, isVisible: widthBudget >= 0 };
+  const { pillTabGroups } = pillTabGroupsWithoutVisibility.reduce<{
+    pillTabGroups: Array<{ label?: string; items: Pill[] }>;
+    widthBudget: number;
+  }>(
+    (acc, { items, ...rest }) => {
+      let widthBudget = acc.widthBudget;
 
-      return { pills: [...acc.pills, pill], widthBudget };
+      const group = {
+        ...rest,
+        items: items.map((item) => {
+          const pillWidth = item.ref.current?.offsetWidth || 0;
+
+          widthBudget -= pillWidth;
+
+          return { ...item, isVisible: widthBudget >= 0 };
+        }),
+      };
+
+      return { pillTabGroups: [...acc.pillTabGroups, group], widthBudget };
     },
-    { pills: [], widthBudget: availableWidth },
+    { pillTabGroups: [], widthBudget: availableWidth },
   );
 
   const dropdownItemGroups = toDropdownItemGroups({
-    overflow: pills.filter(({ isVisible }) => !isVisible).map(toDropdownItem),
-    custom: customDropdownItems,
+    overflow: pillTabGroups.map(({ items, ...rest }) => ({
+      ...rest,
+      items: items.filter(({ isVisible }) => !isVisible).map(toDropdownItem),
+    })),
+    custom: toGroups(customDropdownItems),
   });
 
-  if (pills.length === 0) {
+  if (pillTabGroups.length === 0) {
     return null;
   }
 
@@ -78,26 +113,28 @@ export const PillTabs: React.FC<PillTabsProps> = ({
       ref={refs.parent}
       role="list"
     >
-      {pills.map(({ isVisible, ref, title, isActive, onClick }, index) => (
-        <StyledFlexItem
-          data-testid={`pilltabs-pill-${index}`}
-          isVisible={isVisible}
-          key={index}
-          ref={ref}
-          role="listitem"
-        >
-          <StyledPillTab
-            disabled={!isVisible}
-            isActive={isActive}
-            marginRight="xSmall"
-            onClick={onClick}
-            type="button"
-            variant="subtle"
+      {pillTabGroups.map(({ items }) =>
+        items.map(({ isVisible, ref, title, isActive, onClick }, index) => (
+          <StyledFlexItem
+            data-testid={`pilltabs-pill-${index}`}
+            isVisible={isVisible}
+            key={index}
+            ref={ref}
+            role="listitem"
           >
-            {title}
-          </StyledPillTab>
-        </StyledFlexItem>
-      ))}
+            <StyledPillTab
+              disabled={!isVisible}
+              isActive={isActive}
+              marginRight="xSmall"
+              onClick={onClick}
+              type="button"
+              variant="subtle"
+            >
+              {title}
+            </StyledPillTab>
+          </StyledFlexItem>
+        )),
+      )}
       <StyledFlexItem
         data-testid="pilltabs-dropdown-toggle"
         isVisible={dropdownItemGroups.length > 0}

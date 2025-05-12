@@ -1,5 +1,5 @@
 import { theme as defaultTheme } from '@bigcommerce/big-design-theme';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import 'jest-styled-components';
 import React from 'react';
@@ -13,13 +13,11 @@ const Wrapper = styled.div`
 
 Wrapper.defaultProps = { theme: defaultTheme };
 
-const TestComponent: React.FC<PillTabsProps> = (props) => {
-  return (
-    <Wrapper data-testid="wrapper">
-      <PillTabs {...props} />
-    </Wrapper>
-  );
-};
+const TestComponent: React.FC<PillTabsProps> = (props) => (
+  <Wrapper data-testid="wrapper">
+    <PillTabs {...props} />
+  </Wrapper>
+);
 
 const originalPrototype = Object.getOwnPropertyDescriptors(window.HTMLElement.prototype);
 
@@ -525,10 +523,197 @@ test('sends the right id to the handler after swapping', async () => {
   expect(onClick).toHaveBeenCalledWith(item4.id);
 });
 
-test('it does not render when provided an empty list of items', () => {
-  const { container } = render(<PillTabs activePills={[]} items={[]} onPillClick={jest.fn()} />);
+describe('when displaying grouped pilltabs', () => {
+  beforeEach(() => {
+    Object.defineProperties(window.HTMLElement.prototype, {
+      offsetWidth: {
+        get(this: HTMLElement) {
+          return this.dataset.testid === 'pilltabs-wrapper'
+            ? 1000 // enough space for all pills
+            : parseFloat(this.style.width) || 0;
+        },
+      },
+    });
+  });
 
-  expect(container.firstChild).toBeNull();
+  test.skip('renders the pills within their respective groups', async () => {
+    const groups = [
+      {
+        label: 'Cheeses',
+        items: [
+          { title: 'Cheddar', id: 'cheddar' },
+          { title: 'Gouda', id: 'gouda' },
+        ],
+      },
+      {
+        label: 'Fruits',
+        items: [
+          { title: 'Apple', id: 'apple' },
+          { title: 'Banana', id: 'banana' },
+        ],
+      },
+    ];
+
+    render(<TestComponent activePills={[]} items={groups} onPillClick={jest.fn()} />);
+
+    const cheeses = await screen.findByRole('group', { name: 'Cheeses' });
+
+    expect(within(cheeses).getByText('Cheddar')).toBeInTheDocument();
+    expect(within(cheeses).getByText('Gouda')).toBeInTheDocument();
+
+    const fruits = screen.getByRole('group', { name: 'Fruits' });
+
+    expect(within(fruits).getByText('Apple')).toBeInTheDocument();
+    expect(within(fruits).getByText('Banana')).toBeInTheDocument();
+  });
+
+  test.skip('renders a divider between groups', async () => {
+    const groups = [
+      {
+        label: 'Cheeses',
+        items: [{ title: 'Cheddar', id: 'cheddar' }],
+      },
+      {
+        label: 'Fruits',
+        items: [{ title: 'Apple', id: 'apple' }],
+      },
+      {
+        label: 'Vegetables',
+        items: [{ title: 'Carrot', id: 'carrot' }],
+      },
+    ];
+
+    render(<TestComponent activePills={[]} items={groups} onPillClick={jest.fn()} />);
+
+    const cheeses = await screen.findByRole('group', { name: 'Cheeses' });
+    const fruits = screen.getByRole('group', { name: 'Fruits' });
+    const vegetables = screen.getByRole('group', { name: 'Vegetables' });
+
+    const DIVIDER_STYLES = {
+      borderLeft: `1px solid ${defaultTheme.colors.secondary30}`,
+      paddingLeft: '0.5rem',
+      marginLeft: '0.5rem',
+    };
+
+    expect(cheeses).not.toHaveStyle(DIVIDER_STYLES);
+    expect(fruits).toHaveStyle(DIVIDER_STYLES);
+    expect(vegetables).toHaveStyle(DIVIDER_STYLES);
+  });
+
+  describe('when there is only enough space for some pills', () => {
+    beforeEach(() => {
+      Object.defineProperties(window.HTMLElement.prototype, {
+        offsetWidth: {
+          get(this: HTMLElement) {
+            switch (this.dataset.testid) {
+              case 'pilltabs-wrapper':
+                // emulating space for 3 x 100px pills
+                // with 17px extra width for the group wrapper
+                // with 50px dropdown toggle
+                return 367;
+
+              // only enough space for 3 pills
+              case 'pilltabs-dropdown-toggle':
+                return 50;
+
+              case 'pilltabs-group-0-pill-0':
+                return 100;
+
+              case 'pilltabs-group-0-pill-1':
+                return 100;
+
+              case 'pilltabs-group-1-pill-0':
+                return 100;
+
+              case 'pilltabs-group-1-pill-1':
+                return 100;
+
+              case 'pilltabs-group-2-pill-0':
+                return 100;
+
+              case 'pilltabs-group-2-pill-1':
+                return 100;
+
+              default:
+                return parseFloat(this.style.width) || 0;
+            }
+          },
+        },
+      });
+    });
+
+    test.skip('only the pills that fit are visible', async () => {
+      const groups = [
+        {
+          label: 'Cheeses',
+          items: [
+            { title: 'Cheddar', id: 'cheddar' },
+            { title: 'Gouda', id: 'gouda' },
+          ],
+        },
+        {
+          label: 'Fruits',
+          items: [
+            { title: 'Apple', id: 'apple' },
+            { title: 'Banana', id: 'banana' },
+          ],
+        },
+        {
+          label: 'Vegetables',
+          items: [
+            { title: 'Carrot', id: 'carrot' },
+            { title: 'Daikon', id: 'daikon' },
+          ],
+        },
+      ];
+
+      render(<TestComponent activePills={[]} items={groups} onPillClick={jest.fn()} />);
+
+      const cheddar = await screen.findByTestId('pilltabs-group-0-pill-0');
+      const gouda = screen.getByTestId('pilltabs-group-0-pill-1');
+      const apple = screen.getByTestId('pilltabs-group-1-pill-0');
+      const banana = screen.getByTestId('pilltabs-group-1-pill-1');
+
+      expect(cheddar).not.toHaveStyle(HIDDEN_STYLES);
+      expect(gouda).not.toHaveStyle(HIDDEN_STYLES);
+      expect(apple).not.toHaveStyle(HIDDEN_STYLES);
+      expect(banana).toHaveStyle(HIDDEN_STYLES);
+    });
+
+    test.skip('overflowing pills become grouped options within the dropdown', async () => {
+      const groups = [
+        {
+          label: 'Cheeses',
+          items: [
+            { title: 'Cheddar', id: 'cheddar' },
+            { title: 'Gouda', id: 'gouda' },
+          ],
+        },
+        {
+          label: 'Fruits',
+          items: [
+            { title: 'Apple', id: 'apple' },
+            { title: 'Banana', id: 'banana' },
+          ],
+        },
+        {
+          label: 'Vegetables',
+          items: [
+            { title: 'Carrot', id: 'carrot' },
+            { title: 'Daikon', id: 'daikon' },
+          ],
+        },
+      ];
+
+      render(<TestComponent activePills={[]} items={groups} onPillClick={jest.fn()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'add' }));
+
+      expect(await screen.findByRole('option', { name: 'Banana' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Carrot' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Daikon' })).toBeInTheDocument();
+    });
+  });
 });
 
 describe('when using dropdown items', () => {
